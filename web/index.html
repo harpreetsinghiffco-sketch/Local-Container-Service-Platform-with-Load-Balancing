@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Container Service Platform with Load Balancing</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="logo-badge">⚡ CSP-LB</div>
+      <div>
+        <h1>Local Container Service Platform</h1>
+        <p class="subtitle">Distributed Container Cluster • Real-Time Load Balancer • Dynamic Auto-Scaling</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status-indicator">
+        <span class="status-dot pulsing"></span>
+        <span id="gateway-status">Gateway Online (:8000)</span>
+      </div>
+      <button class="btn btn-outline" id="btn-refresh" onclick="fetchPlatformStatus()">🔄 Refresh</button>
+    </div>
+  </header>
+
+  <main class="dashboard-grid">
+    <!-- Top Stats Row -->
+    <div class="metrics-row">
+      <div class="metric-card">
+        <div class="metric-title">ACTIVE CONTAINERS</div>
+        <div class="metric-value" id="val-active-containers">0 <span class="metric-sub" id="val-total-containers">/ 0 total</span></div>
+        <div class="metric-footer" id="val-healthy-pill">🩺 Checking health...</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-title">LOAD BALANCER ALGORITHM</div>
+        <div class="algo-selector-wrapper">
+          <select id="algo-select" onchange="changeAlgorithm(this.value)">
+            <option value="round_robin">Round Robin</option>
+            <option value="least_connections">Least Connections</option>
+            <option value="random">Random Dispatch</option>
+            <option value="ip_hash">IP Hash (Sticky)</option>
+          </select>
+        </div>
+        <div class="metric-footer" id="val-algo-desc">Sequential round-robin distribution</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-title">TOTAL PROXIED REQUESTS</div>
+        <div class="metric-value" id="val-total-requests">0</div>
+        <div class="metric-footer text-success">
+          <span id="val-success-requests">0</span> success • <span id="val-failed-requests" class="text-danger">0</span> errors
+        </div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-title">TRAFFIC & LATENCY</div>
+        <div class="metric-value"><span id="val-current-rps">0.0</span> <span class="metric-unit">req/s</span></div>
+        <div class="metric-footer">Avg Latency: <span id="val-avg-latency">0 ms</span></div>
+      </div>
+    </div>
+
+    <!-- Interactive Traffic Generator -->
+    <section class="card panel-traffic">
+      <div class="card-header">
+        <div class="card-title">
+          <span class="icon">🚀</span> Interactive Traffic Generator (Live Testbench)
+        </div>
+        <div class="traffic-actions">
+          <button class="btn btn-primary" onclick="fireTrafficBurst(1)">Send 1 Request</button>
+          <button class="btn btn-primary" onclick="fireTrafficBurst(10)">Burst 10 Requests</button>
+          <button class="btn btn-primary" onclick="fireTrafficBurst(25)">Burst 25 Requests</button>
+          <button class="btn btn-secondary" id="btn-stream-toggle" onclick="toggleContinuousStream()">Auto-Traffic: OFF</button>
+        </div>
+      </div>
+      <div class="traffic-body">
+        <p class="section-desc">
+          Test requests are sent to the Gateway (<code>/service/api/data</code>). The Load Balancer intercepts, evaluates healthy targets, and proxies the payload.
+        </p>
+        <div id="traffic-results-stream" class="traffic-results-stream">
+          <div class="empty-state">Click "Send 1 Request" or "Burst" above to observe live load distribution!</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main 2-Column Split: Fleet Management & Controls -->
+    <div class="split-view">
+      <!-- Container Fleet Panel -->
+      <section class="card panel-fleet">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="icon">📦</span> Container Fleet Management
+          </div>
+          <button class="btn btn-success" onclick="deployNewContainer()">+ Deploy Container</button>
+        </div>
+        <div class="fleet-body" id="container-fleet-list">
+          <!-- Dynamically populated container cards -->
+          <div class="loading-state">Loading container fleet...</div>
+        </div>
+      </section>
+
+      <!-- Load Balancing & Auto-Scaler Controls -->
+      <section class="card-column">
+        <!-- Load Distribution Breakdown -->
+        <div class="card panel-distribution">
+          <div class="card-header">
+            <div class="card-title">
+              <span class="icon">📊</span> Request Distribution Breakdown
+            </div>
+          </div>
+          <div class="distribution-body" id="distribution-chart-container">
+            <div class="empty-state">No requests routed yet.</div>
+          </div>
+        </div>
+
+        <!-- Dynamic Auto-Scaler Panel -->
+        <div class="card panel-autoscaler">
+          <div class="card-header">
+            <div class="card-title">
+              <span class="icon">📈</span> Dynamic Auto-Scaler
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="autoscaler-toggle" onchange="toggleAutoScaler(this.checked)">
+              <span class="slider round"></span>
+            </label>
+          </div>
+          <div class="autoscaler-body">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Min Instances</label>
+                <input type="number" id="as-min" value="2" min="1" max="10" onchange="saveAutoScalerConfig()">
+              </div>
+              <div class="form-group">
+                <label>Max Instances</label>
+                <input type="number" id="as-max" value="6" min="2" max="12" onchange="saveAutoScalerConfig()">
+              </div>
+              <div class="form-group">
+                <label>Target RPS/Container</label>
+                <input type="number" id="as-target-rps" value="5" min="1" max="50" onchange="saveAutoScalerConfig()">
+              </div>
+            </div>
+            <div class="scaler-status-box" id="scaler-status-text">
+              Status: <strong>Disabled</strong> • Current Cluster RPS: <strong>0.0</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Live System Event Log -->
+    <section class="card panel-events">
+      <div class="card-header">
+        <div class="card-title">
+          <span class="icon">📋</span> Platform Audit & Health Event Log
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="triggerHealthCheckNow()">Trigger Health Check Now</button>
+      </div>
+      <div class="events-body">
+        <div class="table-container">
+          <table class="events-table">
+            <thead>
+              <tr>
+                <th>Time (UTC)</th>
+                <th>Event Type</th>
+                <th>Message</th>
+                <th>Metadata</th>
+              </tr>
+            </thead>
+            <tbody id="events-log-tbody">
+              <tr><td colspan="4" class="text-center">Loading audit log events...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>Local Container Service Platform with Load Balancing • University Assessment Project • Self-Contained Zero-Dependency Runtime</p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
